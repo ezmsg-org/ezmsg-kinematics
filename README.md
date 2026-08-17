@@ -1,10 +1,10 @@
-# ezmsg-example
+# ezmsg-kinematics
 
 Short description of your ezmsg package.
 
 ## Overview
 
-`ezmsg-example` provides ... for the `ezmsg <https://www.ezmsg.org>`_ framework.
+`ezmsg-kinematics` provides ... for the `ezmsg <https://www.ezmsg.org>`_ framework.
 
 Key features:
 
@@ -17,13 +17,13 @@ Key features:
 Install from PyPI:
 
 ```bash
-pip install ezmsg-example
+pip install ezmsg-kinematics
 ```
 
 Or install the latest development version:
 
 ```bash
-pip install git+https://github.com/ezmsg-org/ezmsg-example@main
+pip install git+https://github.com/ezmsg-org/ezmsg-kinematics@main
 ```
 
 ## Dependencies
@@ -36,7 +36,7 @@ See the `examples` folder for usage examples.
 
 ```python
 import ezmsg.core as ez
-from ezmsg.example import MyUnit
+from ezmsg.kinematics import MyUnit
 
 # Your usage example here
 ```

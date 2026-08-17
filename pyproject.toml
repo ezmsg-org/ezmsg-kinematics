@@ -1,8 +1,8 @@
 [project]
-name = "ezmsg-example"
-description = "Short description of your ezmsg package"
+name = "ezmsg-kinematics"
+description = "ezmsg units and utility code for streaming kinematics"
 authors = [
-  { name = "Your Name", email = "your.email@example.com" },
+  { name = "Chadwick Boulay", email = "chad@cbneurotech.com" },
 ]
 license = "MIT"
 readme = "README.md"
@@ -35,7 +35,7 @@ docs = [
 
 # Uncomment if your package provides CLI commands
 # [project.scripts]
-# ezmsg-example = "ezmsg.example.main:main"
+# ezmsg-kinematics = "ezmsg.kinematics.main:main"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -45,7 +45,7 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/ezmsg/example/__version__.py"
+version-file = "src/ezmsg/kinematics/__version__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ezmsg"]
@@ -64,7 +64,7 @@ exclude = ["*/__version__.py"]
 select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["ezmsg.example"]
+known-first-party = ["ezmsg.kinematics"]
 known-third-party = ["ezmsg"]
 
 [tool.uv.sources]

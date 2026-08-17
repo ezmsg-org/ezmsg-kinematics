@@ -1,4 +1,4 @@
-"""Example usage of ezmsg-example package."""
+"""Example usage of ezmsg-kinematics package."""
 
 import asyncio
 import importlib
@@ -7,13 +7,13 @@ import typing
 import ezmsg.core as ez
 
 # Import your units from the package
-# from ezmsg.example import MyUnit
+# from ezmsg.kinematics import MyUnit
 
 
 class ExampleSettings(ez.Settings):
     """Settings for ExampleUnit."""
 
-    message: str = "Hello from ezmsg-example!"
+    message: str = "Hello from ezmsg-kinematics!"
 
 
 class ExampleUnit(ez.Unit):
@@ -34,8 +34,8 @@ class ExampleUnit(ez.Unit):
 
 async def main():
     """Run the example."""
-    print("ezmsg-example loaded successfully!")
-    print(f"Version: {importlib.import_module('ezmsg.example').__version__}")
+    print("ezmsg-kinematics loaded successfully!")
+    print(f"Version: {importlib.import_module('ezmsg.kinematics').__version__}")
 
     # Example: Create and run a simple system
     # system = ExampleSystem()
