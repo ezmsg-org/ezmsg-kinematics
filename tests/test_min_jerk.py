@@ -434,3 +434,119 @@ class TestDeterminism:
             y += vz[1] * dt
             xo += vo[0] * dt
             yo += vo[1] * dt
+
+
+class TestNominalTrajectory:
+    """``plan_position`` / ``plan_velocity``: the reach as planned, not as commanded.
+
+    The load-bearing property is that differentiating ``plan_position``
+    reproduces the ballistic command exactly. That is what makes the position
+    and velocity channels of a published plan describe one trajectory rather
+    than two loosely-related ones.
+    """
+
+    def test_it_runs_from_the_start_point_to_the_target(self):
+        state = _plan(start_xy=(10.0, -5.0), target_xy=(310.0, -5.0))
+        assert min_jerk.plan_position(state, 0.0) == pytest.approx((10.0, -5.0))
+        assert min_jerk.plan_position(state, state.T) == pytest.approx((310.0, -5.0))
+
+    def test_it_is_the_canonical_min_jerk_curve(self):
+        state = _plan()
+        for frac in (0.1, 0.25, 0.5, 0.75, 0.9):
+            t = frac * state.T
+            px, py = min_jerk.plan_position(state, t)
+            assert px == pytest.approx(_canonical_position(t, state.T, 0.0, DISTANCE))
+            assert py == pytest.approx(0.0, abs=1e-12)
+
+    def test_time_outside_the_reach_clamps_rather_than_extrapolating(self):
+        state = _plan(t0=100.0)
+        assert min_jerk.plan_position(state, 99.0) == pytest.approx((0.0, 0.0))
+        assert min_jerk.plan_position(state, 100.0 + 10.0 * NOMINAL_T) == pytest.approx((DISTANCE, 0.0))
+
+    def test_an_inactive_reach_gives_None_rather_than_the_origin(self):
+        # 0,0 is a real coordinate, so it cannot double as "no plan". A caller
+        # that wants an unbroken position signal substitutes the effector's own.
+        assert min_jerk.plan_position(min_jerk.MinJerkReach(), 1.0) is None
+        state = _plan()
+        min_jerk.reset(state)
+        assert min_jerk.plan_position(state, 0.2) is None
+        # Velocity does have an unambiguous zero, so it returns one.
+        assert min_jerk.plan_velocity(state, 0.2) == (0.0, 0.0)
+
+    def test_it_ignores_where_the_effector_is(self):
+        # The nominal reach is ground truth precisely because nothing that
+        # happened to the effector can move it.
+        state = _plan(ballistic_duration=0.0)
+        before = min_jerk.plan_position(state, 0.9)
+        for i in range(60):
+            min_jerk.step(state, 0.01 * (i + 1), -200.0, 175.0, movement_allowed=True)
+        assert min_jerk.plan_position(state, 0.9) == pytest.approx(before)
+
+    def test_plan_velocity_is_the_derivative_of_plan_position(self):
+        state = _plan()
+        h = 1e-6
+        for frac in (0.1, 0.3, 0.5, 0.8):
+            t = frac * state.T
+            ahead, behind = min_jerk.plan_position(state, t + h), min_jerk.plan_position(state, t - h)
+            central = ((ahead[0] - behind[0]) / (2 * h), (ahead[1] - behind[1]) / (2 * h))
+            assert min_jerk.plan_velocity(state, t) == pytest.approx(central, abs=1e-4)
+
+    def test_the_ballistic_command_is_exactly_the_nominal_velocity(self):
+        # Machine precision, not "close": through the ballistic phase the
+        # command and the nominal reach are the same function.
+        state = _plan(ballistic_duration=0.4)
+        x = y = 0.0
+        dt = 1.0 / 100.0
+        checked = 0
+        for i in range(int(0.4 / dt)):
+            t = (i + 1) * dt
+            commanded = min_jerk.step(state, t, x, y, movement_allowed=True)
+            # Guard on the same comparison ``step`` makes. ``40 * 0.01`` floats
+            # to just above 0.4, so the last sample of a nominally 0.4 s window
+            # is already re-planning.
+            if t - state.t0 < state.ballistic_duration:
+                assert commanded == pytest.approx(min_jerk.plan_velocity(state, t), abs=1e-12)
+                checked += 1
+            x += commanded[0] * dt
+            y += commanded[1] * dt
+        assert checked == 39
+
+    def test_an_on_track_effector_keeps_command_and_plan_together_after_ballistic(self):
+        # Re-planning from a point on your own trajectory is a no-op, so the two
+        # stay together for an undisturbed reach. They part only in the last
+        # ``min_horizon``, where the horizon floor takes over and everything
+        # involved is already near rest.
+        state = _plan(ballistic_duration=0.3, min_horizon=0.3)
+        x = y = 0.0
+        dt = 1.0 / 500.0
+        worst_body = worst_tail = 0.0
+        for i in range(int(state.T / dt)):
+            t = (i + 1) * dt
+            vx, vy = min_jerk.step(state, t, x, y, movement_allowed=True)
+            nx, ny = min_jerk.plan_velocity(state, t)
+            err = math.hypot(vx - nx, vy - ny)
+            if state.T - t > state.min_horizon:
+                worst_body = max(worst_body, err)
+            else:
+                worst_tail = max(worst_tail, err)
+            x += vx * dt
+            y += vy * dt
+        assert worst_body < 0.01 * PEAK_SPEED
+        assert worst_tail < 0.05 * PEAK_SPEED
+
+    def test_a_disturbed_effector_moves_the_command_but_not_the_plan(self):
+        # The gap between them is the tracking error, which is the reason to
+        # publish both rather than either alone.
+        state = _plan(ballistic_duration=0.2)
+        x = y = 0.0
+        dt = 1.0 / 100.0
+        gaps = []
+        for i in range(int(NOMINAL_T / dt)):
+            t = (i + 1) * dt
+            vx, vy = min_jerk.step(state, t, x, y, movement_allowed=True)
+            nx, ny = min_jerk.plan_velocity(state, t)
+            gaps.append(math.hypot(vx - nx, vy - ny))
+            # A decoder dragging the effector off-axis.
+            x += vx * dt
+            y += vy * dt + 90.0 * dt
+        assert max(gaps) > 0.1 * PEAK_SPEED

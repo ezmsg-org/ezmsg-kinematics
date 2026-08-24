@@ -56,6 +56,16 @@ whatever timebase its data carries -- a stream's sample timestamps, a shared
 network clock, or a recording being replayed offline. Two processes given the
 same reach epoch and the same timestamps produce the same commands.
 
+**The command and the nominal reach are two different signals.** :func:`step` is
+the command: ballistic, then re-planned against wherever the effector actually
+is. :func:`plan_position` and :func:`plan_velocity` are the reach as planned at
+the cue, on the original axis, unconditioned on what happened. They agree
+exactly through the ballistic phase and separate afterwards by however much
+re-planning had to correct. A caller recording both gets the trajectory that was
+asked for *and* the one that was commanded, and their difference is the
+effector's tracking error -- none of which is recoverable from the command
+alone.
+
 Typical use::
 
     reach = MinJerkReach()
@@ -70,7 +80,15 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
-__all__ = ["MinJerkReach", "ReplanSeed", "begin_reach", "reset", "step"]
+__all__ = [
+    "MinJerkReach",
+    "ReplanSeed",
+    "begin_reach",
+    "plan_position",
+    "plan_velocity",
+    "reset",
+    "step",
+]
 
 
 class ReplanSeed(str, Enum):
@@ -279,6 +297,71 @@ def _ballistic_command(state: MinJerkReach, elapsed: float) -> tuple[float, floa
     speed = state.D * ds / state.T
     accel = state.D * dds / (state.T * state.T)
     return speed * ux, speed * uy, accel * ux, accel * uy
+
+
+def plan_position(state: MinJerkReach, t: float) -> tuple[float, float] | None:
+    """Nominal position of the reach at time ``t``: ``A + s(τ)·(B - A)``.
+
+    The reach as *planned at the cue*, on the original start→target axis,
+    independent of where the effector actually went. It is the exact
+    antiderivative of the ballistic command, so during the ballistic phase
+    ``d/dt plan_position`` is :func:`step`'s output to machine precision. After
+    that phase the two separate, and the difference is precisely the correction
+    re-planning applied -- which is the useful part, not an inconsistency.
+
+    Publish this alongside :func:`step` when something downstream needs the
+    reach's ground truth: the trajectory the task asked for, against which the
+    effector's actual path is an error signal. Recovering it from the commanded
+    velocity is not equivalent -- integrating a command that re-plans against a
+    lagging effector runs past the target and keeps going, because each step's
+    velocity is anchored to the effector rather than to the integral.
+
+    ``τ`` is clamped to ``[0, 1]``, so a time before the cue gives the start
+    point and a time past the nominal duration gives the target.
+
+    Returns ``None`` when no reach is active, rather than an origin that is
+    indistinguishable from a real coordinate. :func:`step` can return ``(0, 0)``
+    for "no command" because rest is the unambiguous zero of a velocity;
+    position has no such zero. A caller wanting an unbroken signal should
+    substitute the effector's own position -- with no reach, where it is is
+    where it should be.
+
+    Note that the nominal trajectory is a function of elapsed wall time. A
+    caller that gates movement mid-reach should :func:`reset` and re-plan, not
+    expect this to pause.
+    """
+    if not state.active or state.T <= 0.0:
+        return None
+
+    tau = (float(t) - state.t0) / state.T
+    if tau < 0.0:
+        tau = 0.0
+    elif tau > 1.0:
+        tau = 1.0
+
+    s = tau * tau * tau * (10.0 - 15.0 * tau + 6.0 * tau * tau)
+    return (
+        state.start_x + s * (state.target_x - state.start_x),
+        state.start_y + s * (state.target_y - state.start_y),
+    )
+
+
+def plan_velocity(state: MinJerkReach, t: float) -> tuple[float, float]:
+    """Nominal velocity of the reach at time ``t`` -- the derivative of
+    :func:`plan_position`.
+
+    This is the ballistic command, evaluated for the whole reach rather than
+    only for ``ballistic_duration``. Use it when you want the planned reach
+    unconditioned on what the effector did; use :func:`step` when you want the
+    command to actually issue, which re-plans once the ballistic phase ends.
+
+    Returns ``(0, 0)`` for an inactive reach, matching :func:`step` -- unlike
+    :func:`plan_position`, which has no unambiguous zero to return.
+    """
+    if not state.active or state.T <= 0.0:
+        return 0.0, 0.0
+    vx, vy, _, _ = _ballistic_command(state, float(t) - state.t0)
+    return vx, vy
 
 
 def step(
